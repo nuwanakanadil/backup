@@ -1,0 +1,23 @@
+/* @keyframes grow_change {
+  0% { opacity: 0; transform: scale(0.95); }
+  50% { opacity: 0.5; transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-grow_change {
+  animation: grow_change 1.5s ease-out forwards;
+} */
+@keyframes fadeInSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.image-animation {
+  animation: fadeInSlide 1s ease-out forwards;
+}
