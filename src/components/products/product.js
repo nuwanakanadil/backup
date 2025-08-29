@@ -127,6 +127,34 @@ const detectFood = async () => {
   }
 };
 
+const contactSeller = async () => {
+  // must be logged in as customer
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      alert('Please log in to chat with the seller.');
+      router.push('/signin');
+      return;
+    }
+    try {
+      const res = await fetch('http://localhost:5000/api/chat/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ productId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Failed to start chat');
+        return;
+      }
+      // go to /chat/[conversationId]
+      router.push(`/chat/${data.conversationId}`);
+    } catch (e) {
+      console.error(e);
+      alert('Network error starting chat');
+    }
+  }
+
 
   if (!item) return <div className="text-center text-white mt-10">Loading...</div>;
 
@@ -173,7 +201,8 @@ const detectFood = async () => {
             </div> */}
 
             <div className="flex gap-4 justify-center">
-              <button className="bg-[#FF4081] text-white px-4 py-2 rounded hover:bg-pink-500">
+              <button className="bg-[#FF4081] text-white px-4 py-2 rounded hover:bg-pink-500"
+              onClick={contactSeller}>
                 Contact Seller
               </button>
               <button className="bg-[#FF4081] text-white px-4 py-2 rounded hover:bg-pink-500"

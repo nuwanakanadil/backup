@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Order = require("../models/Order");
+const Product = require("../models/Product");
 
 // Create an order (status starts as "pending" for 5 mins)
 router.post("/place", async (req, res) => {
@@ -9,6 +10,12 @@ router.post("/place", async (req, res) => {
 
     if (!userId || !itemId || !itemName || !quantity || !method) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+
+     // 👇 NEW: derive canteenId from product
+    const product = await Product.findById(itemId).select("canteenId").lean();
+    if (!product || !product.canteenId) {
+      return res.status(400).json({ message: "Invalid product or canteen not found" });
     }
 
     const now = new Date();
@@ -25,6 +32,7 @@ router.post("/place", async (req, res) => {
       img,
       status: "pending",
       expiresAt,
+      canteenId: product.canteenId,  
     });
 
      // setTimeout to update status to "placed" after 5 min

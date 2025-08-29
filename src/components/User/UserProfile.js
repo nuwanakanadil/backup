@@ -6,32 +6,14 @@ import {
 } from '@mui/material';
 import { useRouter } from 'next/navigation';
 
-const dummyChats = [
-  {
-    username: 'alice123',
-    lastMessage: 'Hey, are you available tomorrow?',
-    unreadCount: 3,
-    isUnread: true,
-  },
-  {
-    username: 'bob456',
-    lastMessage: 'Thanks for the update!',
-    unreadCount: 0,
-    isUnread: false,
-  },
-  {
-    username: 'charlie789',
-    lastMessage: 'Can you send me the files?',
-    unreadCount: 1,
-    isUnread: true,
-  },
-];
-
 export default function ProfileComponent() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [chats] = useState(dummyChats);
+
+  // NEW: conversations state
+  const [conversations, setConversations] = useState([]);
+
   const [selectedFile, setSelectedFile] = useState(null);
 
   useEffect(() => {
@@ -45,7 +27,7 @@ export default function ProfileComponent() {
           const data = await res.json();
           setUser(data);
         } else {
-          router.push('/signin'); // Redirect to login if not authenticated
+          router.push('/signin');
           alert('Please log in to view your profile.');
         }
       } catch (err) {
@@ -58,70 +40,120 @@ export default function ProfileComponent() {
     fetchUser();
   }, []);
 
-  const handleChatClick = (username) => {
-    router.push(`/chat/${username}`);
-  };
+  // NEW: fetch conversations for this customer
+  useEffect(() => {
+    const fetchConversations = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/chat/my-conversations', {
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setConversations(data.conversations || []);
+        } else {
+          console.warn(data.message || 'Failed to load conversations');
+        }
+      } catch (e) {
+        console.error('Conversations fetch error:', e);
+      }
+    };
 
-const handleUpdate = async () =>
-   { 
+    fetchConversations();
+  }, []);
+
+  const handleChatClick = async (conversationId) => {
+  try {
+    // mark as read on backend
+    await fetch(`http://localhost:5000/api/chat/conversations/${conversationId}/read`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    setConversations(prev =>
+      prev.map(c => c._id === conversationId ? { ...c, unreadCount: 0 } : c)
+    );
+
+    // go to the chat room
+    router.push(`/chat/${conversationId}`);
+  } catch (e) {
+    console.error('mark read error:', e);
+    // still navigate; backend will get fixed next time
+    router.push(`/chat/${conversationId}`);
+  }
+};
+
+  const handleUpdate = async () => { 
     if (!user.firstName || !user.lastName || !user.email || !user.phone) {
       alert('First name, last name, email, and phone are required');
       return;
     }
 
-const emailRegex = /^[^\s@]+@[^\s@]+.[^\s@]+$/; const phoneRegex = /^\d{10}$/;
-  if (!emailRegex.test(user.email)){
-     alert('Invalid email format');
-     return;
-  }
-  if (!phoneRegex.test(user.phone)) { 
-  alert('Phone must be exactly 10 digits');
-   return;
-  }
-  try { const res = await fetch('http://localhost:5000/api/update-profile',
-    { method: 'PUT', headers: { 'Content-Type': 'application/json', }, credentials: 'include',
-    body: JSON.stringify({ firstName: user.firstName, lastName: user.lastName, email: user.email, phone: user.phone, universityId: user.universityId }) });
-  const data = await res.json();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; 
+    const phoneRegex = /^\d{10}$/;
 
-  if (res.ok) {
-  alert('Profile updated successfully');
-  setUser(data.updatedUser); // Update UI with new data
-  } else {
-  alert(data.message || 'Update failed');
-  }
+    if (!emailRegex.test(user.email)){
+      alert('Invalid email format');
+      return;
+    }
+    if (!phoneRegex.test(user.phone)) { 
+      alert('Phone must be exactly 10 digits');
+      return;
+    }
 
-} 
-catch (err) { console.error('Update error:', err); alert('Something went wrong'); } 
-};
+    try { 
+      const res = await fetch('http://localhost:5000/api/update-profile', {
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        credentials: 'include',
+        body: JSON.stringify({ 
+          firstName: user.firstName, 
+          lastName: user.lastName, 
+          email: user.email, 
+          phone: user.phone, 
+          universityId: user.universityId 
+        })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        alert('Profile updated successfully');
+        setUser(data.updatedUser);
+      } else {
+        alert(data.message || 'Update failed');
+      }
+    } catch (err) { 
+      console.error('Update error:', err); 
+      alert('Something went wrong'); 
+    }
+  };
 
   const handleDelete = () => {
     console.log('Delete account');
   };
 
   const handleLogout = async () => {
-  try {
-    const res = await fetch('http://localhost:5000/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    });
+    try {
+      const res = await fetch('http://localhost:5000/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
 
-    if (res.ok) {
-      localStorage.removeItem('email')
-      localStorage.clear()
-      alert('Logged out successfully');
-      router.refresh()
-      router.push('/signin');
-       // redirect to login
-    } else {
-      const data = await res.json();
-      alert(data.message || 'Logout failed');
+      if (res.ok) {
+        localStorage.removeItem('email');
+        localStorage.clear();
+        alert('Logged out successfully');
+        router.refresh();
+        router.push('/signin');
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Logout failed');
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+      alert('Something went wrong');
     }
-  } catch (err) {
-    console.error('Logout error:', err);
-    alert('Something went wrong');
-  }
+  };
 
-};
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!selectedFile) {
@@ -131,13 +163,13 @@ catch (err) { console.error('Update error:', err); alert('Something went wrong')
 
     const formData = new FormData();
     formData.append('profilePic', selectedFile);
-    formData.append('userId', user._id); // Send user ID
+    formData.append('userId', user._id);
 
     try {
       const res = await fetch('http://localhost:5000/api/upload-profile-pic', {
         method: 'POST',
         body: formData,
-        credentials:'include'
+        credentials: 'include'
       });
 
       const data = await res.json();
@@ -157,7 +189,7 @@ catch (err) { console.error('Update error:', err); alert('Something went wrong')
 
   const redirectToOrders = () => {
     router.push('/Orders');
-  }
+  };
 
   if (loading) {
     return (
@@ -226,7 +258,6 @@ catch (err) { console.error('Update error:', err); alert('Something went wrong')
               handleUpdate();
             }}
           >
-            {/* Editable form fields */}
             {['firstName', 'lastName', 'email', 'phone', 'universityId'].map((field) => (
               <TextField
                 key={field}
@@ -250,20 +281,16 @@ catch (err) { console.error('Update error:', err); alert('Something went wrong')
             <Button variant="contained" onClick={handleUpdate} sx={{
               backgroundColor: '#FF4081',
               color: 'white',
-              '&:hover': {
-                backgroundColor: '#e91e63',
-              },
+              '&:hover': { backgroundColor: '#e91e63' },
             }}>
               Update Details
             </Button>
 
-             <Button variant="contained" onClick={handleLogout} sx={{
+            <Button variant="contained" onClick={handleLogout} sx={{
               backgroundColor: '#FF4081',
               color: 'white',
               marginLeft: '16px',
-              '&:hover': {
-                backgroundColor: '#e91e63',
-              },
+              '&:hover': { backgroundColor: '#e91e63' },
             }}>
               Logout
             </Button>
@@ -272,42 +299,45 @@ catch (err) { console.error('Update error:', err); alert('Something went wrong')
               backgroundColor: '#FF4081',
               color: 'white',
               marginLeft: '16px',
-              '&:hover': {
-                backgroundColor: '#e91e63',
-              },
+              '&:hover': { backgroundColor: '#e91e63' },
             }}>
               Your orders
             </Button>
-
-            
-            
-            
           </div>
         </CardContent>
       </Card>
 
-      {/* Chat Section */}
+      {/* Chat Section (REAL DATA) */}
       <div className="w-full lg:w-1/2 p-4">
         <Card className="shadow-lg ">
           <CardContent className="p-6 bg-[#6F4E37]">
-            <Typography variant="h6" className="font-semibold text-white-800 mb-4">Chat</Typography>
+            <Typography variant="h6" className="font-semibold text-white mb-4">Chat</Typography>
+
             <div className="space-y-4">
-              {chats.map((chat, index) => (
+              {conversations.length === 0 && (
+                <div className="bg-white p-4 rounded-lg text-gray-600">
+                  No conversations yet.
+                </div>
+              )}
+
+              {conversations.map((conv) => (
                 <div
-                  key={index}
-                  onClick={() => handleChatClick(chat.username)}
-                  className={`cursor-pointer p-4 rounded-lg transition-all duration-200 ${
-                    chat.isUnread ? 'bg-gray-100' : 'bg-white'
-                  } hover:bg-gray-200`}
+                  key={conv._id}
+                  onClick={() => handleChatClick(conv._id)}
+                  className="cursor-pointer p-4 rounded-lg bg-white hover:bg-gray-100 transition-all duration-200"
                 >
                   <div className="flex justify-between items-center">
-                    <div>
-                      <Typography variant="subtitle1" className="font-medium text-gray-900">{chat.username}</Typography>
-                      <Typography variant="body2" className="text-gray-600 truncate max-w-xs">{chat.lastMessage}</Typography>
+                    <div className="min-w-0">
+                      <Typography variant="subtitle1" className="font-medium text-gray-900 truncate">
+                        {conv.partnerName}
+                      </Typography>
+                      <Typography variant="body2" className="text-gray-600 truncate max-w-xs">
+                        {conv.lastMessage?.text || 'No messages yet'}
+                      </Typography>
                     </div>
-                    {chat.unreadCount > 0 && (
+                    {conv.unreadCount > 0 && (
                       <Badge
-                        badgeContent={chat.unreadCount}
+                        badgeContent={conv.unreadCount}
                         color="secondary"
                         sx={{ '& .MuiBadge-badge': { backgroundColor: '#FF4081' } }}
                       />

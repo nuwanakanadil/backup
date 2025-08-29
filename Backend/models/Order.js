@@ -12,6 +12,7 @@ const OrderSchema = new mongoose.Schema(
     expiresAt: { type: Date, required: true }, // now + 5 minutes
     price: { type: Number }, //store price per item
     img: { type: String }, 
+    canteenId: { type: mongoose.Schema.Types.ObjectId, ref: "Canteen", index: true },
   },
   { timestamps: true }
 );
