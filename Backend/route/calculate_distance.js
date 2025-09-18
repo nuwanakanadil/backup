@@ -1,7 +1,6 @@
-// routes/location.js
 const express = require('express');
 const router = express.Router();
-const Location = require('../models/Location');
+const Canteen = require('../models/Canteen');
 
 // Haversine Distance Function
 function haversineDistance(lat1, lon1, lat2, lon2) {
@@ -19,26 +18,40 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// POST route to calculate distance
+// POST route to calculate distance to the nearest canteen
 router.post('/calculate-distance', async (req, res) => {
   const { latitude, longitude } = req.body;
 
   try {
-    const savedPlace = await Location.findOne({ name: 'Canteen A' });
+    // Find all canteens
+    const canteens = await Canteen.find();
 
-    if (!savedPlace)
-      return res.status(404).json({ message: 'Saved location not found' });
+    if (canteens.length === 0) {
+      return res.status(404).json({ message: 'No canteens found' });
+    }
 
-    const [savedLon, savedLat] = savedPlace.coordinates.coordinates;
+    // Calculate distances to all canteens
+    const distances = await Promise.all(
+      canteens.map(async (canteen) => {
+        const [lon, lat] = canteen.location.coordinates;
 
-    const distance = haversineDistance(latitude, longitude, savedLat, savedLon);
+        const distance = haversineDistance(latitude, longitude, lat, lon);
 
-    console.log('Distance (km):', distance.toFixed(2));
+        return {
+          canteenId: canteen._id,
+          name: canteen.name,
+          distance,
+        };
+      })
+    );
 
-    return res.status(200).json({ distance: distance.toFixed(2) });
+    // Sort canteens by distance (ascending)
+    distances.sort((a, b) => a.distance - b.distance);
+
+    return res.status(200).json({ distances });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: 'Error calculating distance' });
+    return res.status(500).json({ message: 'Error calculating distances' });
   }
 });
 

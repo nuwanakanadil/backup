@@ -2,17 +2,18 @@ const mongoose = require("mongoose");
 
 const OrderSchema = new mongoose.Schema(
   {
-    userId: { type: String, required: true, index: true }, // adapt to ObjectId if you use users collection
+    userId: { type: String, required: true, index: true },
     itemId: { type: String, required: true },
     itemName: { type: String, required: true },
     quantity: { type: Number, required: true, min: 1 },
     method: { type: String, enum: ["delivery", "pickup"], required: true },
-    address:{type:String},
+    address: { type: String },
     status: { type: String, enum: ["pending", "placed"], default: "pending", index: true },
-    expiresAt: { type: Date, required: true }, // now + 5 minutes
-    price: { type: Number }, //store price per item
-    img: { type: String }, 
+    expiresAt: { type: Date, required: true },
+    price: { type: Number },
+    img: { type: String },
     canteenId: { type: mongoose.Schema.Types.ObjectId, ref: "Canteen", index: true },
+    totalAmount: { type: Number, required: true }, // Total amount field
   },
   { timestamps: true }
 );

@@ -54,7 +54,7 @@ export default function OrderComponent() {
           address:deliveryAddress,
           price: item.price,
           img: item.image, // optional if you want to store image URL 
-          // You can also include deliveryAddress if you plan to store it.
+         
         }),
         
       });
@@ -63,6 +63,14 @@ export default function OrderComponent() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.message || "Failed to place order");
       }
+       // Get the PDF Blob from the response
+    const blob = await res.blob();
+
+    // Create a temporary link to trigger the download
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'order-bill.pdf';  // Set the file name
+    link.click(); 
 
       // Reset for a new order
       setQuantity(1);
@@ -71,7 +79,7 @@ export default function OrderComponent() {
 
       alert("Order placed! Check your Orders page for live status and countdown.");
       // Optionally route user to /orders (or keep them here so they can place more)
-       router.push("/Orders");
+      router.push("/Orders");
 
     } catch (e) {
       console.error(e);

@@ -2,8 +2,22 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Card, CardContent, Badge, Typography, Avatar, Button, Divider, TextField
+  Card,
+  CardContent,
+  Badge,
+  Typography,
+  Avatar,
+  Button,
+  Divider,
+  TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  InputAdornment,
 } from '@mui/material';
+import { Visibility, VisibilityOff } from '@mui/icons-material'; // ✅ add this
 import { useRouter } from 'next/navigation';
 
 export default function ProfileComponent() {
@@ -15,6 +29,13 @@ export default function ProfileComponent() {
   const [conversations, setConversations] = useState([]);
 
   const [selectedFile, setSelectedFile] = useState(null);
+
+  // delete-account dialog state
+  const [openConfirm, setOpenConfirm] = useState(false);
+  const [openPassword, setOpenPassword] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -62,25 +83,25 @@ export default function ProfileComponent() {
   }, []);
 
   const handleChatClick = async (conversationId) => {
-  try {
-    // mark as read on backend
-    await fetch(`http://localhost:5000/api/chat/conversations/${conversationId}/read`, {
-      method: 'POST',
-      credentials: 'include',
-    });
+    try {
+      // mark as read on backend
+      await fetch(`http://localhost:5000/api/chat/conversations/${conversationId}/read`, {
+        method: 'POST',
+        credentials: 'include',
+      });
 
-    setConversations(prev =>
-      prev.map(c => c._id === conversationId ? { ...c, unreadCount: 0 } : c)
-    );
+      setConversations(prev =>
+        prev.map(c => c._id === conversationId ? { ...c, unreadCount: 0 } : c)
+      );
 
-    // go to the chat room
-    router.push(`/chat/${conversationId}`);
-  } catch (e) {
-    console.error('mark read error:', e);
-    // still navigate; backend will get fixed next time
-    router.push(`/chat/${conversationId}`);
-  }
-};
+      // go to the chat room
+      router.push(`/chat/${conversationId}`);
+    } catch (e) {
+      console.error('mark read error:', e);
+      // still navigate; backend will get fixed next time
+      router.push(`/chat/${conversationId}`);
+    }
+  };
 
   const handleUpdate = async () => { 
     if (!user.firstName || !user.lastName || !user.email || !user.phone) {
@@ -127,9 +148,6 @@ export default function ProfileComponent() {
     }
   };
 
-  const handleDelete = () => {
-    console.log('Delete account');
-  };
 
   const handleLogout = async () => {
     try {
@@ -206,6 +224,57 @@ export default function ProfileComponent() {
     return <div className="text-center mt-10 text-red-500">User data could not be loaded.</div>;
   }
 
+  const handleDelete = () => {
+    setOpenConfirm(true);
+  };
+
+  // Deleet account : Confirm → proceed to password dialog
+  const confirmDeletion = () => {
+    setOpenConfirm(false);
+    setOpenPassword(true);
+  };
+
+  // Delet account: Submit password → call backend
+  const submitDeletion = async () => {
+    if (!deletePassword) {
+      alert('Please enter your password to confirm deletion.');
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const res = await fetch('http://localhost:5000/api/auth/delete-account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: deletePassword }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || 'Account deletion failed.');
+        return;
+      }
+
+      // Clear local client session info
+      localStorage.removeItem('email');
+      localStorage.clear();
+
+      alert('Your account has been deleted.');
+      setOpenPassword(false);
+
+      // Redirect to signup page
+      router.push('/signup');
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Something went wrong deleting your account.');
+    } finally {
+      setDeleting(false);
+      setDeletePassword('');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 flex flex-col lg:flex-row gap-6">
       {/* Account Details */}
@@ -224,14 +293,18 @@ export default function ProfileComponent() {
               </div>
             </div>
             
-            <Button variant="outlined" onClick={handleDelete} sx={{
-              color: 'white',
-              borderColor: 'white',
-              '&:hover': {
-                borderColor: '#FF4081',
-                color: '#FF4081',
-              },
-            }}>
+            <Button
+              variant="outlined"
+              onClick={handleDelete}
+              sx={{
+                color: 'white',
+                borderColor: 'white',
+                '&:hover': {
+                  borderColor: '#FF4081',
+                  color: '#FF4081',
+                },
+              }}
+            >
               Delete Account
             </Button>
           </div>
@@ -349,6 +422,56 @@ export default function ProfileComponent() {
           </CardContent>
         </Card>
       </div>
+
+      {/* DIALOG 1: Confirm */}
+      <Dialog open={openConfirm} onClose={() => setOpenConfirm(false)}>
+        <DialogTitle>Delete account?</DialogTitle>
+        <DialogContent>
+          Are you sure you want to delete your account <b>{user?.email}</b>? This cannot be undone.
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenConfirm(false)}>Cancel</Button>
+          <Button color="error" onClick={confirmDeletion}>
+            Yes, delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIALOG 2: Password */}
+      <Dialog open={openPassword} onClose={() => setOpenPassword(false)}>
+        <DialogTitle>Confirm your password</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Password"
+            type={showPwd ? 'text' : 'password'}
+            fullWidth
+            value={deletePassword}
+            onChange={(e) => setDeletePassword(e.target.value)}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowPwd((p) => !p)} edge="end">
+                    {showPwd ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Please enter your account password for <b>{user?.email}</b> to confirm deletion.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenPassword(false)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button color="error" onClick={submitDeletion} disabled={deleting}>
+            {deleting ? 'Deleting...' : 'Delete account'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Manager = require('../models/Manager');
+const authMiddleware = require('../middleware/authMiddleware');
 
 
 
@@ -216,6 +217,44 @@ router.post('/logout', (req, res) => {
     sameSite: 'Lax',
   });
   res.status(200).json({ message: 'Logged out successfully' });
+});
+
+
+//delete account
+router.delete('/delete-account', authMiddleware, async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!password) {
+      return res.status(400).json({ message: 'Password is required' });
+    }
+
+    // find the authenticated user
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found or already deleted' });
+    }
+
+    // verify password matches
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      return res.status(401).json({ message: 'Incorrect password' });
+    }
+
+    // delete the user
+    await User.deleteOne({ _id: user._id });
+
+    // clear auth cookie (invalidate session)
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+    });
+
+    res.status(200).json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 
