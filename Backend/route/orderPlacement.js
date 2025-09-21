@@ -12,11 +12,16 @@ const QRCode = require("qrcode");
 router.post("/place", async (req, res) => {
   try {
     const {
-      userId, itemId, itemName, quantity, method, address, price, img, sessionTs
+      userId, itemId, itemName, quantity, method, address, price, img, sessionTs,
+      Paymentmethod, // <-- NEW
     } = req.body;
 
-    if (!userId || !itemId || !itemName || !quantity || !method) {
+    // add Paymentmethod to required checks
+    if (!userId || !itemId || !itemName || !quantity || !method || !Paymentmethod) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+    if (!["Cash", "Card"].includes(Paymentmethod)) {
+      return res.status(400).json({ message: "Invalid payment method" });
     }
 
     // product -> canteen
@@ -49,6 +54,7 @@ router.post("/place", async (req, res) => {
       canteenId: product.canteenId,
       totalAmount,
       sessionTs: sessionTs ? Number(sessionTs) : undefined,
+      Paymentmethod, // <-- NEW save to DB
     });
 
     // auto-advance to placed after 5 minutes
@@ -68,7 +74,7 @@ router.post("/place", async (req, res) => {
   }
 });
 
-// GET /api/orders/user/:userId — list a user's orders (unchanged)
+// GET /api/orders/user/:userId — list a user's orders
 router.get("/user/:userId", async (req, res) => {
   try {
     const orders = await Order.find({ userId: req.params.userId })
@@ -107,17 +113,23 @@ router.delete("/:id", async (req, res) => {
 router.get("/session/:sessionTs", async (req, res) => {
   try {
     const sessionTs = Number(req.params.sessionTs);
-    const { userId } = req.query; // in prod, derive from auth
+    const { userId } = req.query;
     if (!userId || Number.isNaN(sessionTs)) {
       return res.status(400).json({ message: "Bad request" });
     }
 
     const items = await Order.find({ userId, sessionTs }).sort({ createdAt: 1 }).lean();
+
     const total = items.reduce((s, o) => s + (o.totalAmount || 0), 0);
     const windowEndsAt = items.reduce(
       (max, o) => (o.expiresAt > max ? o.expiresAt : max),
       new Date(0)
     );
+
+    // Assume payment method is same across the session; use first if present
+    const Paymentmethod = items[0]?.Paymentmethod || null;
+    const method = items[0]?.method || null;
+    const address = items[0]?.address || null;
 
     res.json({
       sessionTs,
@@ -126,6 +138,9 @@ router.get("/session/:sessionTs", async (req, res) => {
       total,
       windowEndsAt,
       canDownload: new Date() >= new Date(windowEndsAt),
+      Paymentmethod,
+      method,
+      address,
     });
   } catch (e) {
     console.error(e);
@@ -148,7 +163,6 @@ router.get("/session/:sessionTs/bill", async (req, res) => {
     const orders = await Order.find({ userId, sessionTs }).sort({ createdAt: 1 }).lean();
     if (!orders.length) return res.status(404).json({ message: "No orders for this session" });
 
-    // enforce 5-minute window
     const windowEndsAt = orders.reduce(
       (max, o) => (o.expiresAt > max ? o.expiresAt : max),
       new Date(0)
@@ -157,10 +171,11 @@ router.get("/session/:sessionTs/bill", async (req, res) => {
       return res.status(400).json({ message: "Billing window not finished yet" });
     }
 
-    // prepare combined totals
     const grandTotal = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+    const sessionPayment = orders[0]?.Paymentmethod || "-";
+    const sessionMethod = orders[0]?.method || "-";
+    const sessionAddress = orders[0]?.address || "";
 
-    // build PDF
     const doc = new PDFDocument();
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -175,6 +190,9 @@ router.get("/session/:sessionTs/bill", async (req, res) => {
     doc.fontSize(10).text(`Date: ${new Date().toLocaleString()}`);
     doc.text(`Customer: ${user.firstName || ""} ${user.lastName || ""}`.trim());
     doc.text(`Session: ${sessionTs}`);
+    doc.text(`Delivery Method: ${sessionMethod}`);
+    if (sessionMethod === "delivery") doc.text(`Address: ${sessionAddress}`);
+    doc.text(`Payment Method: ${sessionPayment}`); // <-- NEW on bill
 
     doc.moveDown().fontSize(12).text("Items");
     doc.moveDown(0.25).fontSize(10);

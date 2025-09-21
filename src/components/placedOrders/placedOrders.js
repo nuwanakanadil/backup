@@ -28,7 +28,6 @@ function computeSessionMeta(orders) {
         windowEndsAt: expires,
       });
     } else {
-      // pick earliest firstOrderId by createdAt and latest windowEndsAt
       if (new Date(o.createdAt) < new Date(orders.find(x => x._id === existing.firstOrderId)?.createdAt || Infinity)) {
         existing.firstOrderId = o._id;
       }
@@ -53,7 +52,7 @@ function formatTimeLeft(target) {
 function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
   const [busy, setBusy] = useState(false);
   const [allowed, setAllowed] = useState(Date.now() >= new Date(windowEndsAt).getTime());
-  const [tick, setTick] = useState(0); // force re-render for countdown
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -67,11 +66,8 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
     if (!sessionTs || !userId) return;
     setBusy(true);
     try {
-      // 1) check readiness
       const check = await fetch(
-        `http://localhost:5000/api/orders/session/${sessionTs}?userId=${encodeURIComponent(
-          userId
-        )}`
+        `http://localhost:5000/api/orders/session/${sessionTs}?userId=${encodeURIComponent(userId)}`
       );
       const info = await check.json();
       if (!check.ok) throw new Error(info?.message || "Failed to check bill status");
@@ -80,11 +76,8 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
         throw new Error(`Bill not ready yet. Try again in ${left}.`);
       }
 
-      // 2) download final PDF
       const res = await fetch(
-        `http://localhost:5000/api/orders/session/${sessionTs}/bill?userId=${encodeURIComponent(
-          userId
-        )}`
+        `http://localhost:5000/api/orders/session/${sessionTs}/bill?userId=${encodeURIComponent(userId)}`
       );
       if (!res.ok) {
         const t = await res.text();
@@ -117,7 +110,9 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
         {busy ? "Preparing…" : "Download Final Bill"}
       </Button>
       {!allowed && (
-        <span className="text-sm text-gray-200">Ready in <b>{countdown}</b></span>
+        <span className="text-sm text-gray-200">
+          Ready in <b>{countdown}</b>
+        </span>
       )}
     </div>
   );
@@ -127,8 +122,7 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
 
 export default function PlacedOrders() {
   const [orders, setOrders] = useState(null); // null while loading
-  const userId =
-    typeof window !== "undefined" ? localStorage.getItem("userId") : null;
+  const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
   // Fetch orders of logged in user
   useEffect(() => {
@@ -257,6 +251,9 @@ export default function PlacedOrders() {
                         <strong>Delivery Address:</strong> {o.address}
                       </div>
                     )}
+                    <div>
+                      <strong>Payment Method:</strong> {o.Paymentmethod || "-"} {/* <-- NEW */}
+                    </div>
                     <div>
                       <strong>Quantity:</strong> {o.quantity}
                     </div>

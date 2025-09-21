@@ -8,6 +8,7 @@ const OrderSchema = new mongoose.Schema(
     quantity: { type: Number, required: true, min: 1 },
     method: { type: String, enum: ["delivery", "pickup"], required: true },
     address: { type: String },
+    Paymentmethod: { type: String, enum: ["Cash", "Card"], required: true },
     status: { type: String, enum: ["pending", "placed"], default: "pending", index: true },
     expiresAt: { type: Date, required: true },
     price: { type: Number },

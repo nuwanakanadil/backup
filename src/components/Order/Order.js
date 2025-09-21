@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,6 +12,7 @@ export default function OrderPage() {
   const [items, setItems] = useState([]);
   const [method, setMethod] = useState("delivery");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("Cash"); // <-- NEW
 
   useEffect(() => {
     const uid = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
@@ -48,6 +48,7 @@ export default function OrderPage() {
     if (!userId) { alert("Please sign in."); router.push("/signin"); return; }
     if (!items.length) { alert("Add at least one item."); return; }
     if (method === "delivery" && !deliveryAddress.trim()) { alert("Enter a delivery address."); return; }
+    if (!["Cash", "Card"].includes(paymentMethod)) { alert("Choose a payment method."); return; }
 
     try {
       const sessionTs = Date.now(); // shared batch anchor
@@ -65,19 +66,20 @@ export default function OrderPage() {
             price: it.price,
             img: it.image,
             sessionTs,
+            Paymentmethod: paymentMethod, // <-- NEW
           }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.message || `Failed to place ${it.name}`);
         }
-        await res.json(); // created order (not used here)
+        await res.json();
       }
 
       clearDraft(userId);
       localStorage.setItem("lastSessionTs", String(sessionTs));
       alert("Order placed! Your final bill will be ready after the 5-minute window.");
-      router.push("/Orders"); // or a dedicated confirmation page
+      router.push("/Orders");
     } catch (e) {
       console.error(e);
       alert(e.message || "Something went wrong");
@@ -152,6 +154,7 @@ export default function OrderPage() {
           <Typography className="font-bold text-lg">Total: ${total.toFixed(2)}</Typography>
         </div>
 
+        {/* Delivery Method */}
         <div className="mb-4">
           <Typography variant="body1" className="mb-2">Delivery Method:</Typography>
           <div className="flex gap-4">
@@ -184,6 +187,27 @@ export default function OrderPage() {
             InputProps={{ style: { color: "black" } }}
           />
         )}
+
+        {/* Payment Method */}
+        <div className="mb-6">
+          <Typography variant="body1" className="mb-2">Payment Method:</Typography>
+          <div className="flex gap-4">
+            <Button
+              variant={paymentMethod === "Cash" ? "contained" : "outlined"}
+              sx={{ backgroundColor: paymentMethod === "Cash" ? "#FF4081" : "transparent", color: "white", borderColor: "white" }}
+              onClick={() => setPaymentMethod("Cash")}
+            >
+              Cash
+            </Button>
+            <Button
+              variant={paymentMethod === "Card" ? "contained" : "outlined"}
+              sx={{ backgroundColor: paymentMethod === "Card" ? "#FF4081" : "transparent", color: "white", borderColor: "white" }}
+              onClick={() => setPaymentMethod("Card")}
+            >
+              Card
+            </Button>
+          </div>
+        </div>
 
         <Button fullWidth variant="contained" sx={{ backgroundColor: "#FF4081" }} onClick={handlePlaceOrder}>
           Place Order
