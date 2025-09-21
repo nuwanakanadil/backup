@@ -14,6 +14,7 @@ const OrderSchema = new mongoose.Schema(
     img: { type: String },
     canteenId: { type: mongoose.Schema.Types.ObjectId, ref: "Canteen", index: true },
     totalAmount: { type: Number, required: true }, // Total amount field
+    sessionTs: { type: Number, index: true },
   },
   { timestamps: true }
 );
