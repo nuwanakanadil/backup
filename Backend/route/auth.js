@@ -4,11 +4,11 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Manager = require('../models/Manager');
 const authMiddleware = require('../middleware/authMiddleware');
-
-
-
 const router = express.Router();
+const validator = require('validator');
 
+
+// Signup Route
 router.post('/signup', async (req, res) => {
   const {
     firstName,
@@ -20,6 +20,7 @@ router.post('/signup', async (req, res) => {
     confirmPassword,
   } = req.body;
 
+  // 1. Check required fields
   if (
     !firstName ||
     !lastName ||
@@ -32,16 +33,50 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ message: 'All fields are required' });
   }
 
+  // 2. Validate email
+  if (!validator.isEmail(email)) {
+    return res.status(400).json({ message: 'Invalid email address' });
+  }
+
+  // 3. Validate phone (10 digits only – adjust regex if needed)
+  if (!/^[0-9]{10}$/.test(phone)) {
+    return res
+      .status(400)
+      .json({ message: 'Phone number must be exactly 10 digits' });
+  }
+
+  // 4. Validate password
+  if (password.length < 8) {
+    return res
+      .status(400)
+      .json({ message: 'Password must be at least 6 characters long' });
+  }
+
+  // Optional: enforce strong password (letters + numbers)
+  if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+    return res
+      .status(400)
+      .json({ message: 'Password must include letters and numbers' });
+  }
+
+  // 5. Check password confirmation
   if (password !== confirmPassword) {
     return res.status(400).json({ message: 'Passwords do not match' });
   }
 
   try {
+    // 6. Check if email already exists
     const emailExists = await User.findOne({ email });
     if (emailExists) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
+    const universityIdExists = await User.findOne({ universityId });
+    if (universityIdExists) {
+      return res.status(400).json({ message: 'University ID already exists' });
+    }
+
+    // 7. Hash password and save user
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = new User({
@@ -55,12 +90,15 @@ router.post('/signup', async (req, res) => {
 
     await newUser.save();
     res.status(201).json({ message: 'User registered successfully' });
+    
 
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+
 
 // manager signup route
 router.post('/managersignup', async (req, res) => {
@@ -120,41 +158,69 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // Validate input
+    // 1. Check required fields
     if (!email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
+    // 2. Validate email format
+    if (!validator.isEmail(email)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // 3. Validate password strength (match your frontend: min 8, letters + numbers)
+    if (password.length < 8) {
+      return res
+        .status(400)
+        .json({ message: 'Password must be at least 8 characters long' });
+    }
+    if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+      return res
+        .status(400)
+        .json({ message: 'Password must include letters and numbers' });
+    }
+
+    // 4. Check if user exists
     const user = await User.findOne({ email });
-
-    if (!user)
+    if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
 
+    // 5. Compare password
     const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res
+        .status(401)
+        .json({ message: 'Invalid password or Email' });
+    }
 
-    if (!isMatch)
-      return res.status(401).json({ message: 'Invalid password or Email' });
-
+    // 6. Generate JWT
     const payload = {
-       userId: user._id, 
-       email: user.email, 
-       role: 'customer' 
-      };
+      userId: user._id,
+      email: user.email,
+      role: 'customer'
+    };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: '1d'
     });
 
+    // 7. Send cookie + response
     res
       .cookie('token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict', // ✅ prevents CSRF
         maxAge: 24 * 60 * 60 * 1000 // 1 day
       })
-      
       .status(200)
-      .json({ message: 'Login successful', userId: user._id, email: user.email, role: 'customer' });
-    
+      .json({
+        message: 'Login successful',
+        userId: user._id,
+        email: user.email,
+        role: 'customer'
+      });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

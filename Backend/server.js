@@ -17,6 +17,9 @@ const canteenRoutes = require('./route/canteen');
 const addproduct = require('./route/addProduct');
 const loadproducts = require('./route/loadProducts');
 const chatRoutes = require('./route/chat');
+const canteenOrdersRouter = require('./route/canteenOrders');
+const orderRatingsRouter = require('./route/orderRatings');
+ 
 
 const http = require('http');
 const { Server } = require('socket.io');
@@ -77,6 +80,10 @@ app.use('/api/canteen', canteenRoutes);     // Canteen
 app.use('/api/products', addproduct);       // Add product
 app.use('/api/loadproducts', loadproducts); // Load products
 app.use('/api', chatRoutes);                // Chat
+app.use('/api/canteen', canteenOrdersRouter);
+app.use('/api', orderRatingsRouter);
+
+
 
 // Start server (use server.listen, not app.listen)
 const PORT = process.env.PORT || 5000;

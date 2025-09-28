@@ -7,7 +7,7 @@ router.put('/update-profile', authenticate, async (req, res) => {
   const { firstName, lastName, email, phone, universityId } = req.body;
 
   // Validate inputs
-  if (!firstName || !lastName || !email || !phone) {
+  if (!firstName || !lastName || !email || !phone || !universityId) {
     return res.status(400).json({ message: 'Required fields missing' });
   }
 
@@ -21,6 +21,12 @@ router.put('/update-profile', authenticate, async (req, res) => {
   if (!phoneRegex.test(phone)) {
     return res.status(400).json({ message: 'Phone must be exactly 10 digits' });
   }
+
+  const universityIdExists = await User.findOne({ universityId });
+      if (universityIdExists) {
+        return res.status(400).json({ message: 'University ID already exists' });
+      }
+  
 
   try {
     const userId = req.user.userId || req.body.userId; // fallback

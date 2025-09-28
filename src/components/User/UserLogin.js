@@ -16,8 +16,31 @@ export default function UserLogin() {
   const [password, setPassword] = useState('');
   const router = useRouter();
 
+  // NEW: simple form errors
+  const [errors, setErrors] = useState({});
+
+  // NEW: validation helper (matches your project rules)
+  const validate = () => {
+    const next = {};
+
+    // email format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      next.email = 'Enter a valid email address';
+    }
+
+    // password: min 8 chars, letters & numbers
+    if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+      next.password = 'Min 8 characters with letters & numbers';
+    }
+
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!validate()) return;
 
     const res = await fetch('http://localhost:5000/api/auth/login', {
       method: 'POST',
@@ -62,10 +85,14 @@ export default function UserLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    aria-invalid={!!errors.email}
                     className="w-full text-sm text-black border border-slate-300 pl-4 pr-10 py-3 rounded-lg outline-blue-600"
                     placeholder="Enter your email"
                   />
                 </div>
+                {errors.email && (
+                  <p className="text-red-300 text-xs mt-1">{errors.email}</p>
+                )}
               </div>
 
               <div>
@@ -76,10 +103,15 @@ export default function UserLogin() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    aria-invalid={!!errors.password}
                     className="w-full text-sm text-black border border-slate-300 pl-4 pr-10 py-3 rounded-lg outline-blue-600"
                     placeholder="Enter password"
                   />
                 </div>
+                {errors.password && (
+                  <p className="text-red-300 text-xs mt-1">{errors.password}</p>
+                )}
+                <p className="text-white text-xs mt-1">Must be 8+ chars with letters & numbers.</p>
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-4">

@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, Typography, Button, CircularProgress } from "@mui/material";
+import {
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Rating,
+} from "@mui/material";
 
 // ---- helpers -------------------------------------------------------
 
@@ -28,7 +39,10 @@ function computeSessionMeta(orders) {
         windowEndsAt: expires,
       });
     } else {
-      if (new Date(o.createdAt) < new Date(orders.find(x => x._id === existing.firstOrderId)?.createdAt || Infinity)) {
+      if (
+        new Date(o.createdAt) <
+        new Date(orders.find((x) => x._id === existing.firstOrderId)?.createdAt || Infinity)
+      ) {
         existing.firstOrderId = o._id;
       }
       if (expires > existing.windowEndsAt) {
@@ -111,7 +125,7 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
       </Button>
       {!allowed && (
         <span className="text-sm text-gray-200">
-          Ready in <b>{countdown}</b>
+          Bill Ready in <b>{countdown}</b>
         </span>
       )}
     </div>
@@ -123,6 +137,12 @@ function DownloadFinalBillButton({ sessionTs, userId, windowEndsAt }) {
 export default function PlacedOrders() {
   const [orders, setOrders] = useState(null); // null while loading
   const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
+
+  // ⭐ NEW: rating dialog state
+  const [rateOpen, setRateOpen] = useState(false);
+  const [ratingOrderId, setRatingOrderId] = useState(null);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
   // Fetch orders of logged in user
   useEffect(() => {
@@ -252,7 +272,7 @@ export default function PlacedOrders() {
                       </div>
                     )}
                     <div>
-                      <strong>Payment Method:</strong> {o.Paymentmethod || "-"} {/* <-- NEW */}
+                      <strong>Payment Method:</strong> {o.Paymentmethod || "-"}
                     </div>
                     <div>
                       <strong>Quantity:</strong> {o.quantity}
@@ -285,14 +305,39 @@ export default function PlacedOrders() {
                       <div />
                     )}
 
-                    {/* Download Final Bill — show only once per session */}
-                    {showDownload && userId && sessionWindowEndsAt && (
-                      <DownloadFinalBillButton
-                        sessionTs={o.sessionTs}
-                        userId={userId}
-                        windowEndsAt={sessionWindowEndsAt}
-                      />
-                    )}
+                    <div className="flex items-center gap-2">
+                      {/* ⭐ Rate button — only for delivered delivery orders */}
+                      {o.method === "delivery" && o.status === "delivered" && (
+                        <Button
+                          variant="outlined"
+                          onClick={() => {
+                            setRatingOrderId(o._id);
+                            setRatingValue(0);
+                            setRateOpen(true);
+                          }}
+                      sx={{
+                        color: "#FF4081",
+                        borderColor: "#FF4081",
+                        "&:hover": {
+                          color: "#e91e63",
+                          borderColor: "#e91e63",
+                          backgroundColor: "transparent",
+                        },
+                      }}
+                        >
+                          Rate delivery person
+                        </Button>
+                      )}
+
+                      {/* Download Final Bill — show only once per session */}
+                      {showDownload && userId && sessionWindowEndsAt && (
+                        <DownloadFinalBillButton
+                          sessionTs={o.sessionTs}
+                          userId={userId}
+                          windowEndsAt={sessionWindowEndsAt}
+                        />
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -300,6 +345,69 @@ export default function PlacedOrders() {
           })}
         </div>
       </div>
+
+      {/* ⭐ Rating dialog */}
+      <Dialog
+        open={rateOpen}
+        onClose={() => !ratingSubmitting && setRateOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Rate your delivery</DialogTitle>
+        <DialogContent dividers>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              paddingTop: 8,
+              paddingBottom: 4,
+            }}
+          >
+            <Rating
+              value={ratingValue}
+              precision={0.5}
+              onChange={(_, v) => setRatingValue(v ?? 0)}
+            />
+            <span>{ratingValue || 0}/5</span>
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRateOpen(false)} disabled={ratingSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            sx={{ textTransform: "none", backgroundColor: "#FF4081" }}
+            disabled={ratingSubmitting || ratingValue <= 0}
+            onClick={async () => {
+              try {
+                if (!ratingOrderId) return;
+                setRatingSubmitting(true);
+                const res = await fetch(
+                  `http://localhost:5000/api/orders/${ratingOrderId}/rate-delivery`,
+                  {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ rating: ratingValue }),
+                  }
+                );
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || "Failed to submit rating");
+                alert("Thanks! Your rating was submitted.");
+                setRateOpen(false);
+              } catch (e) {
+                alert(e.message || "Network error");
+              } finally {
+                setRatingSubmitting(false);
+              }
+            }}
+          >
+            {ratingSubmitting ? "Submitting…" : "Submit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }

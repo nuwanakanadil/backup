@@ -9,7 +9,7 @@ const OrderSchema = new mongoose.Schema(
     method: { type: String, enum: ["delivery", "pickup"], required: true },
     address: { type: String },
     Paymentmethod: { type: String, enum: ["Cash", "Card"], required: true },
-    status: { type: String, enum: ["pending", "placed"], default: "pending", index: true },
+    status: { type: String, enum: ["pending", "placed","out_for_delivery","delivered"], default: "pending", index: true },
     expiresAt: { type: Date, required: true },
     price: { type: Number },
     img: { type: String },
