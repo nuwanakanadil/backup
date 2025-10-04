@@ -13,7 +13,7 @@ const router = express.Router();
 /** Attach canteenId to req.user using managerId (userId in JWT) */
 async function attachCanteen(req, res, next) {
   try {
-    const managerId = req.user?.managerId;   // <— CHANGED: managerId, not userId
+    const managerId = req.user?.managerId;
     if (!managerId) return res.status(401).json({ message: 'Unauthorized' });
 
     const canteen = await Canteen.findOne({ managerId }).select('_id');
@@ -27,10 +27,8 @@ async function attachCanteen(req, res, next) {
   }
 }
 
-
-// Require login + canteen role (replace with your own middleware)
+// Require login + canteen role
 function requireCanteen(req, res, next) {
-  // Example: req.user = { _id, role, canteenId }
   if (!req.user || !req.user.canteenId) {
     return res.status(401).json({ message: 'Not authorized' });
   }
@@ -38,106 +36,278 @@ function requireCanteen(req, res, next) {
 }
 
 /**
- * GET /api/canteen/orders
- * Query: status=placed
- * Returns all orders for the manager's canteen, joined with customer name.
+ * GET /api/canteen/order-sessions?status=placed|cooking|ready|out_for_delivery|finished
+ * Groups orders by sessionTs for the manager's canteen.
+ * - finished => status in ['delivered','picked']
+ * - others   => status equals given value
  */
-router.get('/orders', authMiddleware, attachCanteen, requireCanteen, async (req, res) => {
+router.get('/order-sessions', authMiddleware, attachCanteen, requireCanteen, async (req, res) => {
   try {
     const { status = 'placed' } = req.query;
 
-    const pipeline = [
-      { $match: { canteenId: new mongoose.Types.ObjectId(req.user.canteenId), status } },
+    const statusMatch =
+      status === 'finished'
+        ? { $in: ['delivered', 'picked'] }
+        : status; // placed|cooking|ready|out_for_delivery
 
-      // Join customer (users) — userId is stored as String in Order
+    const pipeline = [
+      {
+        $match: {
+          canteenId: new mongoose.Types.ObjectId(req.user.canteenId),
+          status: statusMatch instanceof Object ? statusMatch : status,
+        }
+      },
+      { $sort: { createdAt: 1 } },
       { $addFields: { userIdObj: { $toObjectId: '$userId' } } },
+
+      {
+        $group: {
+          _id: '$sessionTs',
+          sessionTs: { $first: '$sessionTs' },
+          userIdObj: { $first: '$userIdObj' },
+          createdAtMin: { $min: '$createdAt' },
+          createdAtMax: { $max: '$createdAt' },
+          totalAmount: { $sum: '$totalAmount' },
+          itemCount: { $sum: 1 },
+          methods: { $addToSet: '$method' },
+          orderIds: { $push: '$_id' },
+          items: {
+            $push: {
+              orderId: '$_id',
+              itemId: '$itemId',
+              itemName: '$itemName',
+              quantity: '$quantity',
+              method: '$method',
+              totalAmount: '$totalAmount',
+              price: '$price',
+              status: '$status',
+              createdAt: '$createdAt',
+              address: '$address',
+              Paymentmethod: '$Paymentmethod',
+              img: '$img'
+            }
+          }
+        }
+      },
+
+      // join user
       {
         $lookup: {
           from: 'users',
           localField: 'userIdObj',
           foreignField: '_id',
-          as: 'user',
-        },
+          as: 'user'
+        }
       },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
 
-      // Join DeliveryDetails by order _id
+      // get ALL delivery assignments in this session (not just latest)
       {
         $lookup: {
           from: 'deliverydetails',
-          localField: '_id',
-          foreignField: 'orderId',
-          as: 'dd',
-        },
+          let: { orderIds: '$orderIds' },
+          pipeline: [
+            { $match: { $expr: { $in: ['$orderId', '$$orderIds'] } } },
+            { $project: { deliveryPersonId: 1, orderId: 1, assignedAt: 1, deliveredAt: 1 } }
+          ],
+          as: 'allDD'
+        }
       },
-      { $unwind: { path: '$dd', preserveNullAndEmptyArrays: true } },
 
-      // Join DeliveryPerson by dd.deliveryPersonId
+      // join all delivery people referenced above
       {
         $lookup: {
-          from: 'deliverypeople', // collection name is model lowercased & pluralized
-          localField: 'dd.deliveryPersonId',
+          from: 'deliverypeople',
+          localField: 'allDD.deliveryPersonId',
           foreignField: '_id',
-          as: 'dp',
-        },
+          as: 'allDP'
+        }
       },
-      { $unwind: { path: '$dp', preserveNullAndEmptyArrays: true } },
+
+      // latest assignment (for "assigned" chip in some views)
+      {
+        $addFields: {
+          latestDD: {
+            $first: {
+              $sortArray: { input: '$allDD', sortBy: { assignedAt: -1 } }
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'deliverypeople',
+          localField: 'latestDD.deliveryPersonId',
+          foreignField: '_id',
+          as: 'latestDP'
+        }
+      },
+      { $unwind: { path: '$latestDP', preserveNullAndEmptyArrays: true } },
 
       {
         $project: {
-          _id: 1,
-          itemName: 1,
-          quantity: 1,
-          method: 1,
+          _id: 0,
+          sessionTs: 1,
+          createdAtMin: 1,
+          createdAtMax: 1,
           totalAmount: 1,
-          status: 1,
-          createdAt: 1,
+          itemCount: 1,
+          methods: 1,
+          items: 1,
 
-          // Customer full name
+          // unique delivery person names for the session (used in "out_for_delivery" tab)
+          deliveryPersons: {
+            $setUnion: [
+              {
+                $map: {
+                  input: '$allDP',
+                  as: 'p',
+                  in: '$$p.name'
+                }
+              },
+              [] // ensure array
+            ]
+          },
+
           customerName: {
             $trim: {
               input: {
                 $concat: [
                   { $ifNull: ['$user.firstName', ''] },
                   ' ',
-                  { $ifNull: ['$user.lastName', ''] },
-                ],
-              },
-            },
+                  { $ifNull: ['$user.lastName', ''] }
+                ]
+              }
+            }
           },
 
-          // Assignment info from DeliveryDetails + DeliveryPerson
+          // latest assignment summary (used in "not assigned/assigned" chip in other tabs)
           assignment: {
-            deliveryPersonId: '$dp._id',
-            deliveryPersonName: '$dp.name',
-            deliveryPersonRating: '$dp.rating',
-            assignedAt: '$dd.assignedAt',
-            deliveredAt: '$dd.deliveredAt',
-          },
-        },
+            deliveryPersonId: '$latestDP._id',
+            deliveryPersonName: '$latestDP.name',
+            deliveryPersonRating: '$latestDP.rating',
+            assignedAt: '$latestDD.assignedAt',
+            deliveredAt: '$latestDD.deliveredAt'
+          }
+        }
       },
 
-      { $sort: { createdAt: -1 } },
+      { $sort: { createdAtMax: -1 } }
     ];
 
-    const orders = await Order.aggregate(pipeline);
-    res.json({ orders });
+    const sessions = await Order.aggregate(pipeline);
+    return res.json({ sessions });
   } catch (err) {
-    console.error('GET /canteen/orders error:', err);
-    res.status(500).json({ message: 'Failed to load orders' });
+    console.error('GET /order-sessions error:', err);
+    return res.status(500).json({ message: 'Failed to load order sessions' });
+  }
+});
+
+/**
+ * POST /api/canteen/order-sessions/:sessionTs/assign-delivery
+ * Assigns a fair driver to all ready+delivery orders in the session and moves them to out_for_delivery
+ */
+router.post('/order-sessions/:sessionTs/assign-delivery', authMiddleware, attachCanteen, requireCanteen, async (req, res) => {
+  try {
+    const { sessionTs } = req.params;
+
+    // only READY + DELIVERY orders should be assigned
+    const orders = await Order.find({
+      canteenId: req.user.canteenId,
+      sessionTs: Number(sessionTs),
+      status: 'ready',
+      method: 'delivery'
+    }).lean();
+
+    if (!orders.length) {
+      return res.status(404).json({ message: 'No ready delivery orders in this session' });
+    }
+
+    const orderIds = orders.map(o => o._id);
+    const existing = await DeliveryDetails.find({ orderId: { $in: orderIds } }, { orderId: 1 }).lean();
+    const alreadyAssignedIds = new Set(existing.map(e => e.orderId.toString()));
+
+    const toAssign = orders.filter(o => !alreadyAssignedIds.has(o._id.toString()));
+    if (!toAssign.length) {
+      return res.json({ message: 'All ready delivery orders in this session already assigned', assigned: null });
+    }
+
+    const chosen = await chooseDeliveryPerson();
+    if (!chosen) return res.status(409).json({ message: 'No active delivery persons available' });
+
+    const now = new Date();
+
+    await Promise.all([
+      DeliveryDetails.insertMany(
+        toAssign.map(o => ({
+          orderId: o._id,
+          deliveryPersonId: chosen._id,
+          assignedAt: now
+        }))
+      ),
+      Order.updateMany(
+        { _id: { $in: toAssign.map(o => o._id) } },
+        { $set: { status: 'out_for_delivery' } }
+      ),
+      DeliveryPerson.updateOne(
+        { _id: chosen._id },
+        { $inc: { totalAssigned: toAssign.length }, $set: { lastAssignedAt: now } }
+      )
+    ]);
+
+    return res.json({
+      message: 'Delivery person assigned for session',
+      countAffected: toAssign.length,
+      assigned: {
+        deliveryPersonId: chosen._id,
+        deliveryPersonName: chosen.name,
+        rating: chosen.rating ?? 0,
+        assignedAt: now
+      }
+    });
+  } catch (err) {
+    console.error('POST /order-sessions/:sessionTs/assign-delivery error:', err);
+    return res.status(500).json({ message: 'Failed to assign delivery person for session' });
+  }
+});
+
+/**
+ * POST /api/canteen/order-sessions/:sessionTs/update-status
+ * Body: { toStatus: 'cooking'|'ready'|'picked', method?: 'pickup'|'delivery' }
+ * NOTE: Updates ALL orders in this session (optionally filtered by method).
+ */
+router.post('/order-sessions/:sessionTs/update-status', authMiddleware, attachCanteen, requireCanteen, async (req, res) => {
+  try {
+    const { sessionTs } = req.params;
+    const { toStatus, method } = req.body || {};
+
+    const allowed = ['cooking', 'ready', 'picked'];
+    if (!allowed.includes(toStatus)) {
+      return res.status(400).json({ message: `Invalid toStatus. Allowed: ${allowed.join(', ')}` });
+    }
+
+    const query = {
+      canteenId: req.user.canteenId,
+      sessionTs: Number(sessionTs),
+    };
+    if (method) query.method = method;
+
+    const result = await Order.updateMany(query, { $set: { status: toStatus } });
+    return res.json({ message: 'Status updated', matched: result.matchedCount ?? result.nMatched, modified: result.modifiedCount ?? result.nModified });
+  } catch (err) {
+    console.error('POST /order-sessions/:sessionTs/update-status error:', err);
+    return res.status(500).json({ message: 'Failed to update status' });
   }
 });
 
 // ---- Helpers ----
+const WINDOW_DAYS = 7;
+const EPSILON = 0.7;
 
-const WINDOW_DAYS = 7;    // fairness window
-const EPSILON = 0.7;      // 70% pure fairness, 30% rating-aware
-
-// Softmax helper
 function softmaxPick(items, scoreFn) {
   const scores = items.map(scoreFn);
   const max = Math.max(...scores);
-  const exps = scores.map(s => Math.exp(s - max)); // numeric stability
+  const exps = scores.map(s => Math.exp(s - max));
   const sum = exps.reduce((a, b) => a + b, 0) || 1;
   let r = Math.random() * sum;
   for (let i = 0; i < items.length; i++) {
@@ -147,18 +317,12 @@ function softmaxPick(items, scoreFn) {
   return items[items.length - 1];
 }
 
-/**
- * Choose a fair delivery person among active ones.
- * Fairness: least assignments in WINDOW_DAYS.
- * Tie-break: epsilon-greedy (uniform vs rating-weighted), then least recently assigned.
- */
 async function chooseDeliveryPerson() {
   const activeDrivers = await DeliveryPerson.find({ status: 'active' }).lean();
   if (!activeDrivers.length) return null;
 
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-  // Count recent assignments per person
   const counts = await DeliveryDetails.aggregate([
     { $match: { assignedAt: { $gte: since } } },
     { $group: { _id: '$deliveryPersonId', c: { $sum: 1 } } }
@@ -170,7 +334,6 @@ async function chooseDeliveryPerson() {
     recentCount: countMap.get(d._id.toString()) || 0,
   }));
 
-  // Keep only least-loaded set
   const minCount = Math.min(...withCounts.map(d => d.recentCount));
   let candidates = withCounts.filter(d => d.recentCount === minCount);
 
@@ -178,91 +341,18 @@ async function chooseDeliveryPerson() {
     return candidates[0];
   }
 
-  // ε-greedy:
   if (Math.random() < EPSILON) {
-    // 70%: purely fair — uniform among candidates
     candidates = candidates.sort(() => Math.random() - 0.5);
-    // As a tiny nudge, prefer the one least recently assigned
     candidates.sort((a, b) => {
       const ta = a.lastAssignedAt ? new Date(a.lastAssignedAt).getTime() : 0;
       const tb = b.lastAssignedAt ? new Date(b.lastAssignedAt).getTime() : 0;
-      return ta - tb; // older first
+      return ta - tb;
     });
     return candidates[0];
   } else {
-    // 30%: rating-weighted softmax among candidates
-    // Score = rating (0..5). Newcomers (0) still get some mass.
     const picked = softmaxPick(candidates, d => (d.rating ?? 0));
     return picked;
   }
 }
-
-// ---- Routes ----
-
-/**
- * POST /api/canteen/orders/:id/assign-delivery
- * Assigns a fair delivery person and creates a DeliveryDetails row.
- * NOTE: does NOT modify the Order schema.
- */
-router.post('/orders/:id/assign-delivery',authMiddleware, attachCanteen,requireCanteen, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Validate order
-    const order = await Order.findOne({ _id: id, canteenId: req.user.canteenId });
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-    if (order.status !== 'placed') return res.status(400).json({ message: 'Only placed orders can be assigned' });
-    if (order.method !== 'delivery') return res.status(400).json({ message: 'Only delivery orders can be assigned' });
-
-    // Prevent duplicate assignment
-    const existing = await DeliveryDetails.findOne({ orderId: order._id });
-    if (existing) {
-      const dp = await DeliveryPerson.findById(existing.deliveryPersonId).lean();
-      return res.json({
-        message: 'Order already assigned',
-        assigned: {
-          deliveryPersonId: dp?._id,
-          deliveryPersonName: dp?.name,
-          assignedAt: existing.assignedAt,
-        }
-      });
-    }
-
-    // Pick a person
-    const chosen = await chooseDeliveryPerson();
-    if (!chosen) return res.status(409).json({ message: 'No active delivery persons available' });
-
-    // Save delivery details
-    const details = await DeliveryDetails.create({
-      orderId: order._id,
-      deliveryPersonId: chosen._id,
-      assignedAt: new Date(),
-    });
-
-    // Update delivery person stats
-    await DeliveryPerson.updateOne(
-      { _id: chosen._id },
-      { $inc: { totalAssigned: 1 }, $set: { lastAssignedAt: new Date() } }
-    );
-
-    await Order.updateOne(
-      { _id: order._id },
-      { $set: { status: 'out_for_delivery' } }
-    );
-
-    return res.json({
-      message: 'Delivery person assigned',
-      assigned: {
-        deliveryPersonId: chosen._id,
-        deliveryPersonName: chosen.name,
-        rating: chosen.rating ?? 0,
-        assignedAt: details.assignedAt,
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Failed to assign delivery person' });
-  }
-});
 
 module.exports = router;

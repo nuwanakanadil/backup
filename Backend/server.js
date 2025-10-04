@@ -19,6 +19,7 @@ const loadproducts = require('./route/loadProducts');
 const chatRoutes = require('./route/chat');
 const canteenOrdersRouter = require('./route/canteenOrders');
 const orderRatingsRouter = require('./route/orderRatings');
+const forgot = require('./route/userPasswordReset');
  
 
 const http = require('http');
@@ -82,6 +83,7 @@ app.use('/api/loadproducts', loadproducts); // Load products
 app.use('/api', chatRoutes);                // Chat
 app.use('/api/canteen', canteenOrdersRouter);
 app.use('/api', orderRatingsRouter);
+app.use('/api/auth/forgot', forgot);        // Forgot password
 
 
 

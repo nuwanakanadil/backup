@@ -22,9 +22,9 @@ export default function UserSignup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const router = useRouter();
 
-  // NEW: simple validation + errors
+  //simple validation + errors
   const [errors, setErrors] = useState({});
-  const [showPassword, setShowPassword] = useState(false); // NEW: toggle visibility
+  const [showPassword, setShowPassword] = useState(false); // toggle visibility
 
   const validate = () => {
     const next = {};
@@ -47,7 +47,7 @@ export default function UserSignup() {
       next.email = 'Enter a valid email';
     }
 
-    // Password: 8+ chars, at least 1 letter and 1 number (adjust as needed)
+    // Password: 8+ chars, at least 1 letter and 1 number
     if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
       next.password = 'Min 8 chars, include letters & numbers';
     }
